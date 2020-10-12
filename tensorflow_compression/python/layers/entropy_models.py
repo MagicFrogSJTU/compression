@@ -128,7 +128,12 @@ class EntropyModel(tf.keras.layers.Layer):
     raise NotImplementedError("Must inherit from EntropyModel.")
 
   def _pmf_to_cdf(self, pmf, tail_mass, pmf_length, max_length):
-    """Helper function for computing the CDF from the PMF."""
+    """Helper function for computing the CDF from the PMF.
+    Args:
+        pmf: dims=2
+        tail_mass: dims=2
+        pmf_length: dims=2
+    """
 
     # Prevent tensors from bouncing back and forth between host and GPU.
     with tf.device("/cpu:0"):
@@ -837,7 +842,10 @@ class SymmetricConditional(EntropyModel):
     # differences in the left tail. This increases numerical stability: c(x) is
     # 1 for large x, 0 for small x. Subtracting two numbers close to 0 can be
     # done with much higher precision than subtracting two numbers close to 1.
-    samples = abs(np.arange(max_length, dtype=int) - pmf_center[:, None])
+    
+    # samples: shape[len(scale_table), max_length]
+    # samples: why abs? 都取正的，容易计算；反正结果一样
+    samples = abs(np.arange(max_length, dtype=int) - pmf_center[:, None])  
     samples = tf.constant(samples, dtype=self.dtype)
     samples_scale = tf.expand_dims(scale_table, 1)
     upper = self._standardized_cumulative((.5 - samples) / samples_scale)
@@ -845,10 +853,13 @@ class SymmetricConditional(EntropyModel):
     pmf = upper - lower
 
     # Compute out-of-range (tail) masses.
+    # why *2? 是两侧的tail_mass的相加，和开头的self.tail_mass定义一致
+    # why lower[:,:1]? 取余数，是residue
     tail_mass = 2 * lower[:, :1]
 
     def cdf_initializer(shape, dtype=None, partition_info=None):
       del partition_info  # unused
+      # +2, one for added tail_mass, one for cdf extra bin.
       assert tuple(shape) == (len(pmf_length), max_length + 2)
       assert dtype == tf.int32
       return self._pmf_to_cdf(
@@ -880,6 +891,7 @@ class SymmetricConditional(EntropyModel):
         def loop_body(indexes, scale):
           return indexes - tf.cast(self.scale <= scale, tf.int32)
 
+        # ？？？
         self._indexes = tf.foldr(
             loop_body, scale_table[:-1],
             initializer=initializer, back_prop=False, name="compute_indexes")
