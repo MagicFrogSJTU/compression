@@ -128,9 +128,9 @@ class EntropyModel(tf.keras.layers.Layer):
     raise NotImplementedError("Must inherit from EntropyModel.")
 
   def _pmf_to_cdf(self, pmf, tail_mass, pmf_length, max_length):
-    """Helper function for computing the CDF from the PMF.
+    """Helper function for computing the CDF from the PMF. 从离散概率图到积分图
     Args:
-        pmf: dims=2
+        pmf: dims=2, shape:(len(scale_table), max_length))
         tail_mass: dims=2
         pmf_length: dims=2
     """
@@ -336,6 +336,7 @@ class EntropyBottleneck(EntropyModel):
   adding an entropy term to the training loss. See the example in the package
   documentation to get started.
 
+  # frog: 没看到哪里有这个代码
   Note: the layer always produces exactly one auxiliary loss and one update op,
   which are only significant for compression and decompression. To use the
   compression feature, the auxiliary loss must be minimized during or after
@@ -419,7 +420,7 @@ class EntropyBottleneck(EntropyModel):
       cumulative densities evaluated at the given inputs.
     """
     logits = inputs
-
+    
     for i in range(len(self.filters) + 1):
       matrix = self._matrices[i]
       if stop_gradient:
@@ -503,6 +504,7 @@ class EntropyBottleneck(EntropyModel):
 
     # Numerically stable way of computing logits of `tail_mass / 2`
     # and `1 - tail_mass / 2`.
+    # frog: 套了反过来的sigmoid，即sigmod(target) = 1 - T/2
     target = np.log(2 / self.tail_mass - 1)
     # Compute lower and upper tail quantile as well as median.
     target = tf.constant([-target, 0, target], dtype=self.dtype)
@@ -530,6 +532,7 @@ class EntropyBottleneck(EntropyModel):
     # between median and upper tail quantile.
     minima = medians - quantiles[:, 0, 0]
     minima = tf.cast(tf.math.ceil(minima), tf.int32)
+    # frog: 不是取axis=0的最大值，而是从minuma和0中的较大值
     minima = tf.math.maximum(minima, 0)
     maxima = quantiles[:, 0, 2] - medians
     maxima = tf.cast(tf.math.ceil(maxima), tf.int32)
@@ -613,6 +616,7 @@ class EntropyBottleneck(EntropyModel):
       noise = tf.random.uniform(tf.shape(inputs), -half, half)
       return tf.math.add_n([inputs, noise])
 
+    # frog: medians是计算出来的mean积分的pencitile
     medians = self._medians[input_slices]
     outputs = tf.math.floor(inputs + (half - medians))
 
@@ -651,8 +655,10 @@ class EntropyBottleneck(EntropyModel):
     lower = self._logits_cumulative(inputs - half, stop_gradient=False)
     upper = self._logits_cumulative(inputs + half, stop_gradient=False)
     # Flip signs if we can move more towards the left tail of the sigmoid.
+    # tf.math.add_n([lower, upper]) == lower+upper
     sign = -tf.math.sign(tf.math.add_n([lower, upper]))
     sign = tf.stop_gradient(sign)
+    # frog: why sigmoid? 跟这里特定likelihood的原理有关
     likelihood = abs(
         tf.math.sigmoid(sign * upper) - tf.math.sigmoid(sign * lower))
 
@@ -680,6 +686,7 @@ class EntropyBottleneck(EntropyModel):
 
     # TODO(jonycgn, ssjhv): Investigate broadcasting.
     indexes = tf.range(channels, dtype=tf.int32)
+    # frog: 这句是多余的
     indexes = tf.cast(indexes, tf.int32)
     tiles = tf.concat(
         [shape[:channel_axis - 1], [1], shape[channel_axis:]], axis=0)
@@ -843,6 +850,7 @@ class SymmetricConditional(EntropyModel):
     # 1 for large x, 0 for small x. Subtracting two numbers close to 0 can be
     # done with much higher precision than subtracting two numbers close to 1.
     
+    # frog
     # samples: shape[len(scale_table), max_length]
     # samples: why abs? 都取正的，容易计算；反正结果一样
     samples = abs(np.arange(max_length, dtype=int) - pmf_center[:, None])  
@@ -853,6 +861,7 @@ class SymmetricConditional(EntropyModel):
     pmf = upper - lower
 
     # Compute out-of-range (tail) masses.
+    # frog
     # why *2? 是两侧的tail_mass的相加，和开头的self.tail_mass定义一致
     # why lower[:,:1]? 取余数，是residue
     tail_mass = 2 * lower[:, :1]
@@ -890,8 +899,7 @@ class SymmetricConditional(EntropyModel):
 
         def loop_body(indexes, scale):
           return indexes - tf.cast(self.scale <= scale, tf.int32)
-
-        # ？？？
+        # 复杂度：o(mn)，依次比较
         self._indexes = tf.foldr(
             loop_body, scale_table[:-1],
             initializer=initializer, back_prop=False, name="compute_indexes")
