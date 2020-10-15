@@ -216,6 +216,7 @@ class UnboundedIndexRangeEncodeOp : public OpKernel {
       // If outside of this range, map value to non-negative integer overflow.
       // NOTE: It might be a good idea to check overflow is within uint32 range.
       uint32 overflow = 0;
+      // frog: 奇数表述负数，偶数表示整数，奇技淫巧。
       if (value < 0) {
         overflow = -2 * value - 1;
         value = max_value;
