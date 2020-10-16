@@ -547,6 +547,7 @@ class EntropyBottleneck(EntropyModel):
     # samples than necessary at the upper end.
     max_length = tf.math.reduce_max(pmf_length)
     samples = tf.range(tf.cast(max_length, self.dtype), dtype=self.dtype)
+    # +的偏移量和self._offset不同的原因，在于_offset那边会默认有一个前置的-medians的操作。而算likelihood的时候却没有。
     samples += pmf_start[:, None, None]
 
     half = tf.constant(.5, dtype=self.dtype)
